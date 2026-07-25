@@ -4,14 +4,14 @@
 
 VelarOS HTML Artifacts 是一个零运行时依赖的浏览器库。它统一负责协议解析、iframe 生命周期、补丁传输、受限高度协商、链接校验和资源清理，接入方不再需要自己拼装 `postMessage` 和流式渲染逻辑。
 
-[English](./README.md) · [在线演示](https://error-zhang.github.io/VelarOS-HTML-Artifacts/)
+[English](./README.md)
 
 ## 安装
 
-首个 npm registry 版本正在准备中。在 `@velaros/html-artifacts` 正式发布前，请安装带版本标签的 GitHub Release：
+为 GitHub Packages 的私有 `@velaros-ai` scope 配置 npm 认证后安装：
 
 ```bash
-npm install Error-Zhang/VelarOS-HTML-Artifacts#v0.1.0
+npm install @velaros-ai/html-artifacts
 ```
 
 仓库会提交编译后的 `dist/`，npm、pnpm、Bun 和 Yarn 消费 Git 依赖时不需要额外执行构建脚本。
@@ -19,7 +19,7 @@ npm install Error-Zhang/VelarOS-HTML-Artifacts#v0.1.0
 ## 快速开始
 
 ```ts
-import { mountHtmlArtifact } from '@velaros/html-artifacts'
+import { mountHtmlArtifact } from '@velaros-ai/html-artifacts'
 
 const container = document.querySelector<HTMLElement>('#preview')
 if (!container) throw new Error('Missing #preview')
@@ -126,17 +126,17 @@ import {
   applyHtmlArtifactProtocolChunk,
   createHtmlArtifactProtocolStreamState,
   finalizeHtmlArtifactProtocol,
-} from '@velaros/html-artifacts/protocol'
+} from '@velaros-ai/html-artifacts/protocol'
 
 // iframe 文档、高度适配与 URL 安全原语。
 import {
   buildHtmlArtifactShellDocument,
   normalizeHtmlArtifactExternalUrl,
   resolveHtmlArtifactFrameFit,
-} from '@velaros/html-artifacts/sandbox'
+} from '@velaros-ai/html-artifacts/sandbox'
 ```
 
-`@velaros/html-artifacts/runtime` 会作为 `./sandbox` 的兼容别名保留。
+`@velaros-ai/html-artifacts/runtime` 会作为 `./sandbox` 的兼容别名保留。
 
 ## API
 

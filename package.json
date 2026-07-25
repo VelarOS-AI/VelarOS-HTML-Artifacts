@@ -1,5 +1,5 @@
 {
-  "name": "@velaros/html-artifacts",
+  "name": "@velaros-ai/html-artifacts",
   "version": "0.1.0",
   "description": "A streaming HTML artifact protocol and sandboxed iframe runtime extracted from VelarOS.",
   "keywords": [
@@ -11,13 +11,13 @@
   ],
   "license": "MIT",
   "author": "Error-Zhang",
-  "homepage": "https://github.com/Error-Zhang/VelarOS-HTML-Artifacts#readme",
+  "homepage": "https://github.com/VelarOS-AI/VelarOS-HTML-Artifacts#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Error-Zhang/VelarOS-HTML-Artifacts.git"
+    "url": "git+https://github.com/VelarOS-AI/VelarOS-HTML-Artifacts.git"
   },
   "bugs": {
-    "url": "https://github.com/Error-Zhang/VelarOS-HTML-Artifacts/issues"
+    "url": "https://github.com/VelarOS-AI/VelarOS-HTML-Artifacts/issues"
   },
   "sideEffects": false,
   "type": "module",
@@ -65,7 +65,7 @@
     "node": ">=20"
   },
   "publishConfig": {
-    "access": "public",
-    "provenance": true
+    "access": "restricted",
+    "registry": "https://npm.pkg.github.com"
   }
 }
