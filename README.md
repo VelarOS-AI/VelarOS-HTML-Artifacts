@@ -1,20 +1,20 @@
 # VelarOS HTML Artifacts
 
-[![CI](https://github.com/Error-Zhang/VelarOS-HTML-Artifacts/actions/workflows/ci.yml/badge.svg)](https://github.com/Error-Zhang/VelarOS-HTML-Artifacts/actions/workflows/ci.yml)
+[![CI](https://github.com/VelarOS-AI/VelarOS-HTML-Artifacts/actions/workflows/ci.yml/badge.svg)](https://github.com/VelarOS-AI/VelarOS-HTML-Artifacts/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-111111.svg)](./LICENSE)
 
 Turn an incremental model text stream into a live, sandboxed HTML interface.
 
 VelarOS HTML Artifacts is a dependency-free browser runtime with a small TypeScript API. It owns the protocol parser, iframe lifecycle, patch transport, bounded height negotiation, link validation, and cleanup so an application does not have to assemble those pieces itself.
 
-[中文文档](./README.zh-CN.md) · [Live demo](https://error-zhang.github.io/VelarOS-HTML-Artifacts/)
+[中文文档](./README.zh-CN.md)
 
 ## Install
 
-The first registry release is being prepared. Until `@velaros/html-artifacts` is available on npm, install the tagged GitHub release:
+Authenticate npm for the private `@velaros-ai` GitHub Packages scope, then install:
 
 ```bash
-npm install Error-Zhang/VelarOS-HTML-Artifacts#v0.1.0
+npm install @velaros-ai/html-artifacts
 ```
 
 The repository versions `dist/`, so npm, pnpm, Bun, and Yarn can consume the Git dependency without running a build script.
@@ -22,7 +22,7 @@ The repository versions `dist/`, so npm, pnpm, Bun, and Yarn can consume the Git
 ## Quick start
 
 ```ts
-import { mountHtmlArtifact } from '@velaros/html-artifacts'
+import { mountHtmlArtifact } from '@velaros-ai/html-artifacts'
 
 const container = document.querySelector<HTMLElement>('#preview')
 if (!container) throw new Error('Missing #preview')
@@ -129,17 +129,17 @@ import {
   applyHtmlArtifactProtocolChunk,
   createHtmlArtifactProtocolStreamState,
   finalizeHtmlArtifactProtocol,
-} from '@velaros/html-artifacts/protocol'
+} from '@velaros-ai/html-artifacts/protocol'
 
 // iframe document, sizing, and URL primitives.
 import {
   buildHtmlArtifactShellDocument,
   normalizeHtmlArtifactExternalUrl,
   resolveHtmlArtifactFrameFit,
-} from '@velaros/html-artifacts/sandbox'
+} from '@velaros-ai/html-artifacts/sandbox'
 ```
 
-`@velaros/html-artifacts/runtime` remains as a compatibility alias for `./sandbox`.
+`@velaros-ai/html-artifacts/runtime` remains as a compatibility alias for `./sandbox`.
 
 ## API
 
