@@ -2,6 +2,15 @@ name: Publish package
 
 on:
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing v-prefixed tag matching package.json
+        required: true
+        type: string
+      source_sha:
+        description: Exact 40-character main commit SHA to publish
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -11,7 +20,17 @@ jobs:
   npm:
     runs-on: ubuntu-latest
     steps:
+      - name: Require an exact main source
+        env:
+          REQUESTED_SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          test "$GITHUB_REF" = "refs/heads/main"
+          test "$REQUESTED_SOURCE_SHA" = "$GITHUB_SHA"
+          test "$(printf '%s' "$REQUESTED_SOURCE_SHA" | wc -c)" -eq 40
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.source_sha }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -20,6 +39,24 @@ jobs:
           scope: '@velaros-ai'
       - run: npm ci
       - run: npm run check
-      - run: npm publish --access restricted
+      - id: release
+        name: Build the immutable release bundle
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          node scripts/prepare-release.mjs \
+            --tag "$RELEASE_TAG" \
+            --source-sha "$SOURCE_SHA" \
+            --out-dir release \
+            --require-tag
+          echo "tarball=$(node -p 'require("./release/release-manifest.json").tarball.fileName')" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: html-artifacts-${{ inputs.release_tag }}-${{ inputs.source_sha }}
+          path: release/
+          if-no-files-found: error
+          retention-days: 90
+      - run: npm publish "release/${{ steps.release.outputs.tarball }}" --access restricted
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,6 +1,6 @@
 {
   "name": "@velaros-ai/html-artifacts",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A streaming HTML artifact protocol and sandboxed iframe runtime extracted from VelarOS.",
   "keywords": [
     "ai",
@@ -54,7 +54,9 @@
     "test": "npm run build && node --test tests/*.test.mjs",
     "demo": "npm run build && vite demo",
     "demo:build": "npm run build && vite build demo --outDir ../demo-dist --emptyOutDir",
-    "check": "npm run typecheck && npm test && npm run demo:build && npm pack --dry-run",
+    "check:dist": "npm run build && node scripts/check-dist.mjs",
+    "check": "npm run typecheck && npm test && npm run demo:build && npm run check:dist && npm pack --dry-run",
+    "release:dry-run": "npm run check && node scripts/prepare-release.mjs --dry-run",
     "prepack": "npm run build"
   },
   "devDependencies": {

@@ -148,24 +148,24 @@ describe('browser host', () => {
       window.dispatch('message', {
         data: { type: resize, naturalHeight: 999 },
         origin: 'null',
-        source: null,
+        source: iframe.contentWindow,
       })
       assert.equal(iframe.style.height, '200px')
 
       window.dispatch('message', {
         data: { type: prompt, prompt: 'Continue' },
         origin: 'null',
-        source: null,
+        source: iframe.contentWindow,
       })
       window.dispatch('message', {
         data: { type: link, url: 'javascript:alert(1)' },
         origin: 'null',
-        source: null,
+        source: iframe.contentWindow,
       })
       window.dispatch('message', {
         data: { type: link, url: 'https://example.com/docs' },
         origin: 'null',
-        source: null,
+        source: iframe.contentWindow,
       })
       assert.deepEqual(prompts, ['Continue'])
       assert.deepEqual(links, ['https://example.com/docs'])
@@ -207,6 +207,54 @@ describe('browser host', () => {
       const snapshot = await controller.consume(chunks())
       assert.equal(snapshot?.id, 'async')
       assert.match(snapshot?.html ?? '', /Done/)
+      controller.dispose()
+    })
+  })
+
+  test('accepts opaque-origin messages only from the mounted iframe contentWindow', async () => {
+    await withFakeDom(async ({ document, window }) => {
+      const prompts = []
+      const target = new FakeTarget()
+      const controller = mountHtmlArtifact(target, {
+        onPrompt: (prompt) => prompts.push(prompt),
+      })
+      const iframe = document.iframe
+      const prompt = bridgeType(iframe.srcdoc, 'prompt')
+      assert.ok(prompt)
+
+      iframe.dispatch('load')
+
+      window.dispatch('message', {
+        data: { type: prompt, prompt: 'trusted opaque frame' },
+        origin: 'null',
+        source: iframe.contentWindow,
+      })
+      assert.deepEqual(prompts, ['trusted opaque frame'])
+
+      window.dispatch('message', {
+        data: { type: prompt, prompt: 'missing source' },
+        origin: 'null',
+        source: null,
+      })
+      window.dispatch('message', {
+        data: { type: prompt, prompt: 'forged source' },
+        origin: 'null',
+        source: {},
+      })
+      window.dispatch('message', {
+        data: { type: prompt, prompt: 'different frame' },
+        origin: 'null',
+        source: new FakeIframe().contentWindow,
+      })
+      assert.deepEqual(prompts, ['trusted opaque frame'])
+
+      window.dispatch('message', {
+        data: { type: prompt, prompt: 'trusted non-opaque frame' },
+        origin: 'https://example.com',
+        source: iframe.contentWindow,
+      })
+      assert.deepEqual(prompts, ['trusted opaque frame', 'trusted non-opaque frame'])
+
       controller.dispose()
     })
   })
