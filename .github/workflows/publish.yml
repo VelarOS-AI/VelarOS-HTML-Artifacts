@@ -57,6 +57,6 @@ jobs:
           path: release/
           if-no-files-found: error
           retention-days: 90
-      - run: npm publish "release/${{ steps.release.outputs.tarball }}" --access restricted
+      - run: npm publish "./release/${{ steps.release.outputs.tarball }}" --access restricted
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
