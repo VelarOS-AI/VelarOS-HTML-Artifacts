@@ -50,7 +50,6 @@ export function mountHtmlArtifact(target, options = {}) {
     const maxHeight = Math.max(minHeight, normalizeDimension(options.maxHeight, DEFAULT_HTML_ARTIFACT_MAX_REPORTED_HEIGHT));
     const initialHeight = Math.min(maxHeight, Math.max(minHeight, normalizeDimension(options.initialHeight, DEFAULT_HTML_ARTIFACT_HEIGHT)));
     let bridgeMessages = createBridgeMessages();
-    let inboundBridgeTypes = createInboundBridgeTypes(bridgeMessages);
     const iframe = document.createElement('iframe');
     let shellDocument = createShellDocument(bridgeMessages);
     let state = createHtmlArtifactProtocolStreamState({
@@ -66,15 +65,6 @@ export function mountHtmlArtifact(target, options = {}) {
     const ready = new Promise((resolve) => {
         settleReady = resolve;
     });
-    function createInboundBridgeTypes(messages) {
-        return new Set([
-            messages.resize,
-            messages.sendPrompt,
-            messages.openLink,
-            messages.generic,
-            messages.error,
-        ]);
-    }
     function createShellDocument(messages) {
         return buildHtmlArtifactShellDocument({
             bridgeMessages: messages,
@@ -171,9 +161,8 @@ export function mountHtmlArtifact(target, options = {}) {
         const payload = readMessagePayload(event.data);
         if (!payload)
             return;
-        const sourceMatches = event.source === iframe.contentWindow;
-        const isPrivateOpaqueMessage = event.origin === 'null' && inboundBridgeTypes.has(payload.type);
-        if (!sourceMatches && !isPrivateOpaqueMessage)
+        const frameWindow = iframe.contentWindow;
+        if (!frameWindow || event.source !== frameWindow)
             return;
         if (payload.type === bridgeMessages.resize) {
             applyReportedHeight(payload);
@@ -203,7 +192,7 @@ export function mountHtmlArtifact(target, options = {}) {
                 patchType: readString(payload.patchType) || undefined,
             });
         }
-        else if (payload.type === HTML_ARTIFACT_WHEEL_MESSAGE_TYPE && sourceMatches) {
+        else if (payload.type === HTML_ARTIFACT_WHEEL_MESSAGE_TYPE) {
             const deltaX = Number(payload.deltaX) || 0;
             const deltaY = Number(payload.deltaY) || 0;
             if (options.onWheel) {
@@ -279,7 +268,6 @@ export function mountHtmlArtifact(target, options = {}) {
             pendingMessages.length = 0;
             frameReady = false;
             bridgeMessages = createBridgeMessages();
-            inboundBridgeTypes = createInboundBridgeTypes(bridgeMessages);
             shellDocument = createShellDocument(bridgeMessages);
             iframe.style.height = `${initialHeight}px`;
             iframe.addEventListener('load', handleLoad, { once: true });
