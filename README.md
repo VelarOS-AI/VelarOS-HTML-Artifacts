@@ -11,7 +11,11 @@ VelarOS HTML Artifacts is a dependency-free browser runtime with a small TypeScr
 
 ## Install
 
-Authenticate npm for the private `@velaros-ai` GitHub Packages scope, then install:
+`@velaros-ai/html-artifacts` is a public package hosted on GitHub Packages. GitHub's
+npm registry currently still requires authentication to install public packages:
+use a personal access token (classic) with at least `read:packages` locally, or the
+repository-authorized `GITHUB_TOKEN` in GitHub Actions. Map the `@velaros-ai` scope
+to `https://npm.pkg.github.com`, provide the token, then install:
 
 ```bash
 npm install @velaros-ai/html-artifacts
