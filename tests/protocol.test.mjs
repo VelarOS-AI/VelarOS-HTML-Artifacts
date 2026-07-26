@@ -5,6 +5,7 @@ import {
   applyHtmlArtifactProtocolChunk,
   createHtmlArtifactProtocolStreamState,
   finalizeHtmlArtifactProtocol,
+  HtmlArtifactProtocolParser,
 } from '../dist/protocol.js'
 
 function streamInChunks(source, chunkSize = 7) {
@@ -20,6 +21,35 @@ function streamInChunks(source, chunkSize = 7) {
 }
 
 describe('HTML artifact protocol', () => {
+  test('offers an owned parser lifecycle without exposing mutable setup state', () => {
+    const parser = new HtmlArtifactProtocolParser({ enabled: true })
+
+    parser.write('<artifact version="1" id="owned" title="Owned">')
+    parser.write('<patch type="append"><p>Ready</p></patch></artifact>')
+    parser.finish()
+
+    assert.match(parser.getSnapshot('owned')?.html ?? '', /Ready/)
+    parser.reset()
+    assert.equal(parser.getSnapshot('owned'), null)
+    assert.equal(parser.state.mode, 'markdown')
+  })
+
+  test('returns an immutable parser state snapshot', () => {
+    const parser = new HtmlArtifactProtocolParser({ enabled: true })
+    parser.write(
+      '<artifact version="1" id="one" title="One"><patch type="append">hello</patch>'
+    )
+    const state = parser.state
+
+    assert.throws(() => {
+      state.artifactsById.one = { id: 'two', title: 'Two', html: 'changed' }
+    }, TypeError)
+    assert.throws(() => {
+      state.limits.maxBufferLength = 1
+    }, TypeError)
+    assert.equal(parser.getSnapshot('one')?.html, 'hello')
+  })
+
   test('parses a complete artifact across arbitrary chunk boundaries', () => {
     const source = [
       '<artifact version="1" id="profile-card" title="Profile">',

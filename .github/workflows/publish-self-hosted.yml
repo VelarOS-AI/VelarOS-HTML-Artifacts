@@ -1,4 +1,4 @@
-name: Publish package
+name: Publish package (self-hosted fallback)
 
 on:
   workflow_dispatch:
@@ -8,7 +8,7 @@ on:
         required: true
         type: string
       source_sha:
-        description: Exact 40-character main commit SHA to publish
+        description: Exact 40-character source commit SHA to publish
         required: true
         type: string
 
@@ -18,15 +18,8 @@ permissions:
 
 jobs:
   npm:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, macOS, ARM64, velaros-package-publish]
     steps:
-      - name: Require an exact main source
-        env:
-          REQUESTED_SOURCE_SHA: ${{ inputs.source_sha }}
-        run: |
-          test "$GITHUB_REF" = "refs/heads/main"
-          test "$REQUESTED_SOURCE_SHA" = "$GITHUB_SHA"
-          test "$(printf '%s' "$REQUESTED_SOURCE_SHA" | wc -c)" -eq 40
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -37,6 +30,13 @@ jobs:
           cache: npm
           registry-url: https://npm.pkg.github.com
           scope: '@velaros-ai'
+      - name: Verify immutable release source
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test "$(git rev-parse "${RELEASE_TAG}^{commit}")" = "$SOURCE_SHA"
       - run: npm ci
       - run: npm run check
       - id: release

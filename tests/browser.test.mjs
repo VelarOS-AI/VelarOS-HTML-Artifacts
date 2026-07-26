@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
-import { mountHtmlArtifact } from '../dist/index.js'
+import { HtmlArtifactRuntime, mountHtmlArtifact } from '../dist/index.js'
 
 class FakeEventTarget {
   listeners = new Map()
@@ -97,6 +97,38 @@ async function withFakeDom(run) {
 }
 
 describe('browser host', () => {
+  test('accepts an explicit browser environment and exposes the runtime class', async () => {
+    const document = new FakeDocument()
+    const window = new FakeWindow()
+    let nextId = 0
+    const environment = {
+      createBridgeId: () => `test-${(nextId += 1)}`,
+      createIframe: () => document.createElement('iframe'),
+      addMessageListener: (listener) => window.addEventListener('message', listener),
+      removeMessageListener: (listener) => window.removeEventListener('message', listener),
+      scrollBy: (deltaX, deltaY) => window.scrollBy({ left: deltaX, top: deltaY }),
+    }
+
+    const runtime = new HtmlArtifactRuntime(new FakeTarget(), { environment })
+    assert.match(runtime.iframe.srcdoc, /velaros:html-artifact:test-1:render/)
+    runtime.reset()
+    assert.match(runtime.iframe.srcdoc, /velaros:html-artifact:test-2:render/)
+    runtime.dispose()
+    assert.equal(window.listeners.get('message')?.size ?? 0, 0)
+  })
+
+  test('keeps compatibility controller methods bound when destructured', async () => {
+    await withFakeDom(async () => {
+      const controller = mountHtmlArtifact(new FakeTarget())
+      const { write, finish, reset, dispose } = controller
+
+      assert.doesNotThrow(() => write('plain markdown'))
+      assert.doesNotThrow(() => finish())
+      assert.doesNotThrow(() => reset())
+      assert.doesNotThrow(() => dispose())
+    })
+  })
+
   test('owns streaming, sandbox transport, bounded sizing, callbacks, reset, and cleanup', async () => {
     await withFakeDom(async ({ document, window }) => {
       const prompts = []

@@ -98,6 +98,78 @@ export interface HtmlArtifactProtocolStreamOptions {
   limits?: HtmlArtifactProtocolLimits
 }
 
+export interface HtmlArtifactProtocolStateSnapshot {
+  readonly enabled: boolean
+  readonly mode: HtmlArtifactProtocolMode
+  readonly buffer: string
+  readonly activeArtifact: Readonly<HtmlArtifactDescriptor> | null
+  readonly activeAction:
+    | (Readonly<Omit<HtmlArtifactActionState, 'emittedDiagnostics'>> & {
+        readonly emittedDiagnostics: readonly string[]
+      })
+    | null
+  readonly artifactsById: Readonly<Record<string, Readonly<HtmlArtifactSnapshot>>>
+  readonly anonymousArtifactCounter: number
+  readonly limits: Readonly<Required<HtmlArtifactProtocolLimits>>
+}
+
+/**
+ * Stateful incremental parser for the HTML Artifact protocol.
+ *
+ * The class is the preferred API for long-lived streams. The standalone functions below remain
+ * available for consumers that intentionally manage and persist the protocol state themselves.
+ */
+export class HtmlArtifactProtocolParser {
+  private currentState: HtmlArtifactProtocolStreamState
+
+  constructor(private readonly options: HtmlArtifactProtocolStreamOptions = {}) {
+    this.currentState = createHtmlArtifactProtocolStreamState(options)
+  }
+
+  get state(): HtmlArtifactProtocolStateSnapshot {
+    const artifactsById = Object.fromEntries(
+      Object.entries(this.currentState.artifactsById).map(([id, artifact]) => [
+        id,
+        Object.freeze({ ...artifact }),
+      ])
+    )
+    const activeAction = this.currentState.activeAction
+      ? Object.freeze({
+          ...this.currentState.activeAction,
+          emittedDiagnostics: Object.freeze([
+            ...this.currentState.activeAction.emittedDiagnostics,
+          ]),
+        })
+      : null
+    return Object.freeze({
+      ...this.currentState,
+      activeArtifact: this.currentState.activeArtifact
+        ? Object.freeze({ ...this.currentState.activeArtifact })
+        : null,
+      activeAction,
+      artifactsById: Object.freeze(artifactsById),
+      limits: Object.freeze({ ...this.currentState.limits }),
+    })
+  }
+
+  write(chunk: string): HtmlArtifactProtocolEvent[] {
+    return applyHtmlArtifactProtocolChunk(this.currentState, chunk)
+  }
+
+  finish(): HtmlArtifactProtocolEvent[] {
+    return finalizeHtmlArtifactProtocol(this.currentState)
+  }
+
+  getSnapshot(artifactId: string): HtmlArtifactSnapshot | null {
+    const snapshot = this.currentState.artifactsById[artifactId]
+    return snapshot ? { ...snapshot } : null
+  }
+
+  reset(): void {
+    this.currentState = createHtmlArtifactProtocolStreamState(this.options)
+  }
+}
+
 export type HtmlArtifactProtocolEvent =
   | { type: 'markdown'; text: string }
   | { type: 'artifact-open'; artifact: HtmlArtifactDescriptor; protocolText: string }

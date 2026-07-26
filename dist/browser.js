@@ -1,26 +1,40 @@
-import { applyHtmlArtifactProtocolChunk, createHtmlArtifactProtocolStreamState, DEFAULT_HTML_ARTIFACT_HEIGHT, finalizeHtmlArtifactProtocol, } from './protocol.js';
+import { DEFAULT_HTML_ARTIFACT_HEIGHT, HtmlArtifactProtocolParser, } from './protocol.js';
 import { normalizeHtmlArtifactExternalUrl } from './security.js';
 import { buildHtmlArtifactShellDocument, DEFAULT_HTML_ARTIFACT_MAX_REPORTED_HEIGHT, HTML_ARTIFACT_WHEEL_MESSAGE_TYPE, } from './shell.js';
-let nextBridgeId = 0;
-function createBridgeId() {
-    const cryptoApi = globalThis.crypto;
-    if (cryptoApi && typeof cryptoApi.randomUUID === 'function') {
-        return cryptoApi.randomUUID();
+/**
+ * Default DOM implementation used by {@link HtmlArtifactRuntime}.
+ *
+ * Keeping browser access behind this object makes runtime ownership explicit and lets other
+ * applications adapt the library to webviews or test environments.
+ */
+export class DomHtmlArtifactEnvironment {
+    browserWindow;
+    browserDocument;
+    fallbackId = 0;
+    constructor(browserWindow = window, browserDocument = document) {
+        this.browserWindow = browserWindow;
+        this.browserDocument = browserDocument;
     }
-    nextBridgeId += 1;
-    return `${Date.now().toString(36)}-${nextBridgeId.toString(36)}`;
-}
-function createBridgeMessages() {
-    const prefix = `velaros:html-artifact:${createBridgeId()}`;
-    return {
-        render: `${prefix}:render`,
-        patch: `${prefix}:patch`,
-        resize: `${prefix}:resize`,
-        sendPrompt: `${prefix}:prompt`,
-        openLink: `${prefix}:link`,
-        generic: `${prefix}:message`,
-        error: `${prefix}:error`,
-    };
+    createBridgeId() {
+        const cryptoApi = globalThis.crypto;
+        if (cryptoApi && typeof cryptoApi.randomUUID === 'function') {
+            return cryptoApi.randomUUID();
+        }
+        this.fallbackId += 1;
+        return `${Date.now().toString(36)}-${this.fallbackId.toString(36)}`;
+    }
+    createIframe() {
+        return this.browserDocument.createElement('iframe');
+    }
+    addMessageListener(listener) {
+        this.browserWindow.addEventListener('message', listener);
+    }
+    removeMessageListener(listener) {
+        this.browserWindow.removeEventListener('message', listener);
+    }
+    scrollBy(deltaX, deltaY) {
+        this.browserWindow.scrollBy({ left: deltaX, top: deltaY });
+    }
 }
 function normalizeDimension(value, fallback) {
     return typeof value === 'number' && Number.isFinite(value) && value > 0
@@ -37,255 +51,279 @@ function readString(value) {
     return typeof value === 'string' ? value : '';
 }
 /**
- * Mount one streaming HTML artifact surface into a DOM element.
- *
- * The controller owns protocol parsing, iframe creation, sandbox transport, height negotiation,
- * action validation, and cleanup. Callers only feed model text and handle explicit capabilities.
+ * Owns one artifact parser, iframe transport, host callbacks, and their complete lifecycle.
  */
-export function mountHtmlArtifact(target, options = {}) {
-    if (!target || typeof target.replaceChildren !== 'function') {
-        throw new TypeError('mountHtmlArtifact target must be an HTMLElement');
+export class HtmlArtifactRuntime {
+    options;
+    iframe;
+    ready;
+    environment;
+    minHeight;
+    maxHeight;
+    initialHeight;
+    parser;
+    bridgeMessages;
+    latestArtifactId = null;
+    disposed = false;
+    consuming = false;
+    frameReady = false;
+    settleReady = () => undefined;
+    pendingMessages = [];
+    constructor(target, options = {}) {
+        this.options = options;
+        if (!target || typeof target.replaceChildren !== 'function') {
+            throw new TypeError('HtmlArtifactRuntime target must be an HTMLElement');
+        }
+        this.environment = options.environment ?? new DomHtmlArtifactEnvironment();
+        this.minHeight = normalizeDimension(options.minHeight, 1);
+        this.maxHeight = Math.max(this.minHeight, normalizeDimension(options.maxHeight, DEFAULT_HTML_ARTIFACT_MAX_REPORTED_HEIGHT));
+        this.initialHeight = Math.min(this.maxHeight, Math.max(this.minHeight, normalizeDimension(options.initialHeight, DEFAULT_HTML_ARTIFACT_HEIGHT)));
+        this.parser = new HtmlArtifactProtocolParser({
+            enabled: true,
+            limits: options.protocolLimits,
+        });
+        this.bridgeMessages = this.createBridgeMessages();
+        this.iframe = this.environment.createIframe();
+        this.ready = new Promise((resolve) => {
+            this.settleReady = resolve;
+        });
+        this.configureIframe();
+        this.environment.addMessageListener(this.handleMessage);
+        target.replaceChildren(this.iframe);
     }
-    const minHeight = normalizeDimension(options.minHeight, 1);
-    const maxHeight = Math.max(minHeight, normalizeDimension(options.maxHeight, DEFAULT_HTML_ARTIFACT_MAX_REPORTED_HEIGHT));
-    const initialHeight = Math.min(maxHeight, Math.max(minHeight, normalizeDimension(options.initialHeight, DEFAULT_HTML_ARTIFACT_HEIGHT)));
-    let bridgeMessages = createBridgeMessages();
-    const iframe = document.createElement('iframe');
-    let shellDocument = createShellDocument(bridgeMessages);
-    let state = createHtmlArtifactProtocolStreamState({
-        enabled: true,
-        limits: options.protocolLimits,
-    });
-    let latestArtifactId = null;
-    let disposed = false;
-    let consuming = false;
-    let frameReady = false;
-    let settleReady = () => undefined;
-    const pendingMessages = [];
-    const ready = new Promise((resolve) => {
-        settleReady = resolve;
-    });
-    function createShellDocument(messages) {
+    write = (chunk) => {
+        this.assertActive();
+        return this.dispatch(this.parser.write(chunk));
+    };
+    finish = () => {
+        this.assertActive();
+        return this.dispatch(this.parser.finish());
+    };
+    consume = async (chunks) => {
+        this.assertActive();
+        if (this.consuming)
+            throw new Error('HTML artifact runtime is already consuming a stream');
+        this.consuming = true;
+        try {
+            for await (const chunk of chunks) {
+                this.write(chunk);
+            }
+            this.finish();
+            return this.getSnapshot();
+        }
+        finally {
+            this.consuming = false;
+        }
+    };
+    getSnapshot = (artifactId = this.latestArtifactId ?? '') => {
+        return this.parser.getSnapshot(artifactId);
+    };
+    reset = () => {
+        this.assertActive();
+        this.parser.reset();
+        this.latestArtifactId = null;
+        this.pendingMessages.length = 0;
+        this.frameReady = false;
+        this.bridgeMessages = this.createBridgeMessages();
+        this.iframe.style.height = `${this.initialHeight}px`;
+        this.iframe.addEventListener('load', this.handleLoad, { once: true });
+        // Assigning a new shell removes scripts, styles, timers, observers, and listeners while
+        // retaining the iframe identity expected by the host application.
+        this.iframe.srcdoc = this.createShellDocument();
+    };
+    dispose = () => {
+        if (this.disposed)
+            return;
+        this.disposed = true;
+        this.consuming = false;
+        this.pendingMessages.length = 0;
+        this.iframe.removeEventListener('load', this.handleLoad);
+        this.environment.removeMessageListener(this.handleMessage);
+        this.iframe.remove();
+        this.settleReady(this.iframe);
+    };
+    configureIframe() {
+        this.iframe.title = this.options.title ?? 'HTML artifact preview';
+        if (this.options.className)
+            this.iframe.className = this.options.className;
+        this.iframe.setAttribute('sandbox', this.options.sandbox ?? 'allow-scripts');
+        this.iframe.referrerPolicy = 'no-referrer';
+        this.iframe.style.display = 'block';
+        this.iframe.style.width = '100%';
+        this.iframe.style.height = `${this.initialHeight}px`;
+        this.iframe.style.border = '0';
+        this.iframe.addEventListener('load', this.handleLoad, { once: true });
+        this.iframe.srcdoc = this.createShellDocument();
+    }
+    createBridgeMessages() {
+        const prefix = `velaros:html-artifact:${this.environment.createBridgeId()}`;
+        return {
+            render: `${prefix}:render`,
+            patch: `${prefix}:patch`,
+            resize: `${prefix}:resize`,
+            sendPrompt: `${prefix}:prompt`,
+            openLink: `${prefix}:link`,
+            generic: `${prefix}:message`,
+            error: `${prefix}:error`,
+        };
+    }
+    createShellDocument() {
         return buildHtmlArtifactShellDocument({
-            bridgeMessages: messages,
-            designCss: options.designCss,
-            maxReportedHeight: maxHeight,
-            rootId: options.rootId,
+            bridgeMessages: this.bridgeMessages,
+            designCss: this.options.designCss,
+            maxReportedHeight: this.maxHeight,
+            rootId: this.options.rootId,
         });
     }
-    function reportError(error) {
+    reportError(error) {
         try {
-            options.onError?.(error);
+            this.options.onError?.(error);
         }
         catch {
             // Error callbacks are an application boundary and must not destabilize the stream runtime.
         }
     }
-    function invoke(callback, callbackName, ...args) {
+    invoke(callback, callbackName, ...args) {
         if (!callback)
             return;
         try {
             callback(...args);
         }
         catch (cause) {
-            reportError({
+            this.reportError({
                 phase: 'host',
                 message: `${callbackName} callback failed`,
                 cause,
             });
         }
     }
-    function assertActive() {
-        if (disposed)
-            throw new Error('HTML artifact controller has been disposed');
+    assertActive() {
+        if (this.disposed)
+            throw new Error('HTML artifact runtime has been disposed');
     }
-    function post(payload) {
-        if (!frameReady) {
-            pendingMessages.push(payload);
+    post(payload) {
+        if (!this.frameReady) {
+            this.pendingMessages.push(payload);
             return;
         }
-        const frameWindow = iframe.contentWindow;
+        const frameWindow = this.iframe.contentWindow;
         if (!frameWindow) {
-            reportError({ phase: 'host', message: 'HTML artifact iframe is not available' });
+            this.reportError({ phase: 'host', message: 'HTML artifact iframe is not available' });
             return;
         }
         frameWindow.postMessage(payload, '*');
     }
-    function dispatch(events) {
+    dispatch(events) {
         for (const event of events) {
-            if (event.type === 'markdown') {
-                invoke(options.onMarkdown, 'onMarkdown', event.text);
+            switch (event.type) {
+                case 'markdown':
+                    this.invoke(this.options.onMarkdown, 'onMarkdown', event.text);
+                    break;
+                case 'artifact-open':
+                    this.latestArtifactId = event.artifact.id;
+                    break;
+                case 'artifact-update':
+                    this.latestArtifactId = event.artifact.id;
+                    this.post({ type: this.bridgeMessages.render, html: event.html, patches: [] });
+                    break;
+                case 'artifact-patch':
+                    this.latestArtifactId = event.artifact.id;
+                    this.post({ type: this.bridgeMessages.patch, patches: [event.patch] });
+                    break;
+                case 'artifact-diagnostic':
+                    this.reportError({
+                        phase: 'protocol',
+                        message: event.diagnostic.message,
+                        patchId: event.diagnostic.patchId,
+                        patchType: event.diagnostic.patchType,
+                    });
+                    break;
+                case 'artifact-close':
+                    this.latestArtifactId = event.artifact.id;
+                    break;
             }
-            else if (event.type === 'artifact-open') {
-                latestArtifactId = event.artifact.id;
-            }
-            else if (event.type === 'artifact-update') {
-                latestArtifactId = event.artifact.id;
-                post({ type: bridgeMessages.render, html: event.html, patches: [] });
-            }
-            else if (event.type === 'artifact-patch') {
-                latestArtifactId = event.artifact.id;
-                post({ type: bridgeMessages.patch, patches: [event.patch] });
-            }
-            else if (event.type === 'artifact-diagnostic') {
-                reportError({
-                    phase: 'protocol',
-                    message: event.diagnostic.message,
-                    patchId: event.diagnostic.patchId,
-                    patchType: event.diagnostic.patchType,
-                });
-            }
-            else if (event.type === 'artifact-close') {
-                latestArtifactId = event.artifact.id;
-            }
-            invoke(options.onEvent, 'onEvent', event);
+            this.invoke(this.options.onEvent, 'onEvent', event);
         }
         return events;
     }
-    function getSnapshot(artifactId = latestArtifactId ?? '') {
-        const snapshot = state.artifactsById[artifactId];
-        return snapshot ? { ...snapshot } : null;
-    }
-    function applyReportedHeight(payload) {
+    applyReportedHeight(payload) {
         const candidate = Number(payload.naturalHeight ?? payload.height);
         if (!Number.isFinite(candidate) || candidate <= 0)
             return;
-        const height = Math.min(maxHeight, Math.max(minHeight, Math.ceil(candidate)));
-        if (Math.round(iframe.getBoundingClientRect().height) !== height) {
-            iframe.style.height = `${height}px`;
+        const height = Math.min(this.maxHeight, Math.max(this.minHeight, Math.ceil(candidate)));
+        if (Math.round(this.iframe.getBoundingClientRect().height) !== height) {
+            this.iframe.style.height = `${height}px`;
         }
     }
-    function handleMessage(event) {
-        if (disposed)
+    handleMessage = (event) => {
+        if (this.disposed)
             return;
         const payload = readMessagePayload(event.data);
         if (!payload)
             return;
-        const frameWindow = iframe.contentWindow;
+        const frameWindow = this.iframe.contentWindow;
         if (!frameWindow || event.source !== frameWindow)
             return;
-        if (payload.type === bridgeMessages.resize) {
-            applyReportedHeight(payload);
-        }
-        else if (payload.type === bridgeMessages.sendPrompt) {
-            invoke(options.onPrompt, 'onPrompt', readString(payload.prompt));
-        }
-        else if (payload.type === bridgeMessages.openLink) {
-            const url = normalizeHtmlArtifactExternalUrl(payload.url, {
-                allowedProtocols: options.allowedLinkProtocols,
-            });
-            if (url) {
-                invoke(options.onLink, 'onLink', url);
+        switch (payload.type) {
+            case this.bridgeMessages.resize:
+                this.applyReportedHeight(payload);
+                break;
+            case this.bridgeMessages.sendPrompt:
+                this.invoke(this.options.onPrompt, 'onPrompt', readString(payload.prompt));
+                break;
+            case this.bridgeMessages.openLink: {
+                const url = normalizeHtmlArtifactExternalUrl(payload.url, {
+                    allowedProtocols: this.options.allowedLinkProtocols,
+                });
+                if (url) {
+                    this.invoke(this.options.onLink, 'onLink', url);
+                }
+                else {
+                    this.reportError({ phase: 'security', message: 'Blocked an invalid artifact URL' });
+                }
+                break;
             }
-            else {
-                reportError({ phase: 'security', message: 'Blocked an invalid artifact URL' });
+            case this.bridgeMessages.generic:
+                this.invoke(this.options.onMessage, 'onMessage', payload.payload);
+                break;
+            case this.bridgeMessages.error:
+                this.reportError({
+                    phase: 'runtime',
+                    message: readString(payload.message) || 'Artifact runtime error',
+                    patchId: readString(payload.patchId) || undefined,
+                    patchType: readString(payload.patchType) || undefined,
+                });
+                break;
+            case HTML_ARTIFACT_WHEEL_MESSAGE_TYPE: {
+                const deltaX = Number(payload.deltaX) || 0;
+                const deltaY = Number(payload.deltaY) || 0;
+                if (this.options.onWheel) {
+                    this.invoke(this.options.onWheel, 'onWheel', deltaX, deltaY);
+                }
+                else {
+                    this.environment.scrollBy(deltaX, deltaY);
+                }
+                break;
             }
         }
-        else if (payload.type === bridgeMessages.generic) {
-            invoke(options.onMessage, 'onMessage', payload.payload);
-        }
-        else if (payload.type === bridgeMessages.error) {
-            reportError({
-                phase: 'runtime',
-                message: readString(payload.message) || 'Artifact runtime error',
-                patchId: readString(payload.patchId) || undefined,
-                patchType: readString(payload.patchType) || undefined,
-            });
-        }
-        else if (payload.type === HTML_ARTIFACT_WHEEL_MESSAGE_TYPE) {
-            const deltaX = Number(payload.deltaX) || 0;
-            const deltaY = Number(payload.deltaY) || 0;
-            if (options.onWheel) {
-                invoke(options.onWheel, 'onWheel', deltaX, deltaY);
-            }
-            else {
-                window.scrollBy({ left: deltaX, top: deltaY });
-            }
-        }
-    }
-    function handleLoad() {
-        if (disposed)
+    };
+    handleLoad = () => {
+        if (this.disposed)
             return;
-        frameReady = true;
-        const frameWindow = iframe.contentWindow;
+        this.frameReady = true;
+        const frameWindow = this.iframe.contentWindow;
         if (frameWindow) {
-            for (const payload of pendingMessages.splice(0)) {
+            for (const payload of this.pendingMessages.splice(0)) {
                 frameWindow.postMessage(payload, '*');
             }
         }
-        settleReady(iframe);
-    }
-    iframe.title = options.title ?? 'HTML artifact preview';
-    if (options.className)
-        iframe.className = options.className;
-    iframe.setAttribute('sandbox', options.sandbox ?? 'allow-scripts');
-    iframe.referrerPolicy = 'no-referrer';
-    iframe.style.display = 'block';
-    iframe.style.width = '100%';
-    iframe.style.height = `${initialHeight}px`;
-    iframe.style.border = '0';
-    iframe.addEventListener('load', handleLoad, { once: true });
-    iframe.srcdoc = shellDocument;
-    window.addEventListener('message', handleMessage);
-    target.replaceChildren(iframe);
-    function write(chunk) {
-        assertActive();
-        return dispatch(applyHtmlArtifactProtocolChunk(state, chunk));
-    }
-    function finish() {
-        assertActive();
-        return dispatch(finalizeHtmlArtifactProtocol(state));
-    }
-    return {
-        iframe,
-        ready,
-        write,
-        finish,
-        async consume(chunks) {
-            assertActive();
-            if (consuming)
-                throw new Error('HTML artifact controller is already consuming a stream');
-            consuming = true;
-            try {
-                for await (const chunk of chunks) {
-                    write(chunk);
-                }
-                finish();
-                return getSnapshot();
-            }
-            finally {
-                consuming = false;
-            }
-        },
-        getSnapshot,
-        reset() {
-            assertActive();
-            state = createHtmlArtifactProtocolStreamState({
-                enabled: true,
-                limits: options.protocolLimits,
-            });
-            latestArtifactId = null;
-            pendingMessages.length = 0;
-            frameReady = false;
-            bridgeMessages = createBridgeMessages();
-            shellDocument = createShellDocument(bridgeMessages);
-            iframe.style.height = `${initialHeight}px`;
-            iframe.addEventListener('load', handleLoad, { once: true });
-            // Reloading the same shell keeps the iframe element stable while removing prior document
-            // scripts, styles, timers, observers, and event listeners before the next artifact stream.
-            iframe.srcdoc = shellDocument;
-        },
-        dispose() {
-            if (disposed)
-                return;
-            disposed = true;
-            consuming = false;
-            pendingMessages.length = 0;
-            iframe.removeEventListener('load', handleLoad);
-            window.removeEventListener('message', handleMessage);
-            iframe.remove();
-            settleReady(iframe);
-        },
+        this.settleReady(this.iframe);
     };
+}
+/**
+ * Compatibility factory for applications that prefer a function entry point.
+ */
+export function mountHtmlArtifact(target, options = {}) {
+    return new HtmlArtifactRuntime(target, options);
 }
 //# sourceMappingURL=browser.js.map

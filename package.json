@@ -1,7 +1,7 @@
 {
   "name": "@velaros-ai/html-artifacts",
-  "version": "0.1.1",
-  "description": "A streaming HTML artifact protocol and sandboxed iframe runtime extracted from VelarOS.",
+  "version": "0.1.2",
+  "description": "A framework-neutral streaming HTML artifact protocol and sandboxed iframe runtime.",
   "keywords": [
     "ai",
     "artifact",
@@ -32,6 +32,10 @@
       "types": "./dist/protocol.d.ts",
       "import": "./dist/protocol.js"
     },
+    "./browser": {
+      "types": "./dist/browser.d.ts",
+      "import": "./dist/browser.js"
+    },
     "./sandbox": {
       "types": "./dist/sandbox.d.ts",
       "import": "./dist/sandbox.js"
@@ -45,7 +49,8 @@
     "dist",
     "LICENSE",
     "README.md",
-    "README.zh-CN.md"
+    "README.zh-CN.md",
+    "docs"
   ],
   "scripts": {
     "clean": "node scripts/clean.mjs",
@@ -55,7 +60,8 @@
     "demo": "npm run build && vite demo",
     "demo:build": "npm run build && vite build demo --outDir ../demo-dist --emptyOutDir",
     "check:dist": "npm run build && node scripts/check-dist.mjs",
-    "check": "npm run typecheck && npm test && npm run demo:build && npm run check:dist && npm pack --dry-run",
+    "check:package-contract": "npm run build && node scripts/check-package-contract.mjs",
+    "check": "npm run typecheck && npm test && npm run demo:build && npm run check:package-contract && npm run check:dist",
     "release:dry-run": "npm run check && node scripts/prepare-release.mjs --dry-run",
     "prepack": "npm run build"
   },
@@ -67,7 +73,7 @@
     "node": ">=20"
   },
   "publishConfig": {
-    "access": "restricted",
+    "access": "public",
     "registry": "https://npm.pkg.github.com"
   }
 }

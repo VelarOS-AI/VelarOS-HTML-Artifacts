@@ -29,6 +29,56 @@ const VOID_HTML_TAGS = new Set([
     'track',
     'wbr',
 ]);
+/**
+ * Stateful incremental parser for the HTML Artifact protocol.
+ *
+ * The class is the preferred API for long-lived streams. The standalone functions below remain
+ * available for consumers that intentionally manage and persist the protocol state themselves.
+ */
+export class HtmlArtifactProtocolParser {
+    options;
+    currentState;
+    constructor(options = {}) {
+        this.options = options;
+        this.currentState = createHtmlArtifactProtocolStreamState(options);
+    }
+    get state() {
+        const artifactsById = Object.fromEntries(Object.entries(this.currentState.artifactsById).map(([id, artifact]) => [
+            id,
+            Object.freeze({ ...artifact }),
+        ]));
+        const activeAction = this.currentState.activeAction
+            ? Object.freeze({
+                ...this.currentState.activeAction,
+                emittedDiagnostics: Object.freeze([
+                    ...this.currentState.activeAction.emittedDiagnostics,
+                ]),
+            })
+            : null;
+        return Object.freeze({
+            ...this.currentState,
+            activeArtifact: this.currentState.activeArtifact
+                ? Object.freeze({ ...this.currentState.activeArtifact })
+                : null,
+            activeAction,
+            artifactsById: Object.freeze(artifactsById),
+            limits: Object.freeze({ ...this.currentState.limits }),
+        });
+    }
+    write(chunk) {
+        return applyHtmlArtifactProtocolChunk(this.currentState, chunk);
+    }
+    finish() {
+        return finalizeHtmlArtifactProtocol(this.currentState);
+    }
+    getSnapshot(artifactId) {
+        const snapshot = this.currentState.artifactsById[artifactId];
+        return snapshot ? { ...snapshot } : null;
+    }
+    reset() {
+        this.currentState = createHtmlArtifactProtocolStreamState(this.options);
+    }
+}
 export function createHtmlArtifactProtocolStreamState(options = {}) {
     const artifactsById = {};
     const limits = resolveProtocolLimits(options.limits);
