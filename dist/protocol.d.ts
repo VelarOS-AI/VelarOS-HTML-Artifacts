@@ -70,6 +70,34 @@ export interface HtmlArtifactProtocolStreamOptions {
     initialArtifacts?: HtmlArtifactSnapshot[];
     limits?: HtmlArtifactProtocolLimits;
 }
+export interface HtmlArtifactProtocolStateSnapshot {
+    readonly enabled: boolean;
+    readonly mode: HtmlArtifactProtocolMode;
+    readonly buffer: string;
+    readonly activeArtifact: Readonly<HtmlArtifactDescriptor> | null;
+    readonly activeAction: (Readonly<Omit<HtmlArtifactActionState, 'emittedDiagnostics'>> & {
+        readonly emittedDiagnostics: readonly string[];
+    }) | null;
+    readonly artifactsById: Readonly<Record<string, Readonly<HtmlArtifactSnapshot>>>;
+    readonly anonymousArtifactCounter: number;
+    readonly limits: Readonly<Required<HtmlArtifactProtocolLimits>>;
+}
+/**
+ * Stateful incremental parser for the HTML Artifact protocol.
+ *
+ * The class is the preferred API for long-lived streams. The standalone functions below remain
+ * available for consumers that intentionally manage and persist the protocol state themselves.
+ */
+export declare class HtmlArtifactProtocolParser {
+    private readonly options;
+    private currentState;
+    constructor(options?: HtmlArtifactProtocolStreamOptions);
+    get state(): HtmlArtifactProtocolStateSnapshot;
+    write(chunk: string): HtmlArtifactProtocolEvent[];
+    finish(): HtmlArtifactProtocolEvent[];
+    getSnapshot(artifactId: string): HtmlArtifactSnapshot | null;
+    reset(): void;
+}
 export type HtmlArtifactProtocolEvent = {
     type: 'markdown';
     text: string;

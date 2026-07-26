@@ -6,6 +6,9 @@ VelarOS HTML Artifacts 是一个零运行时依赖的浏览器库。它统一负
 
 [English](./README.md)
 
+完整的中文公共接口、生命周期、依赖注入与扩展约定见
+[中文 API 文档](./docs/api.zh-CN.md)。
+
 ## 安装
 
 为 GitHub Packages 的私有 `@velaros-ai` scope 配置 npm 认证后安装：
@@ -118,14 +121,13 @@ v1 协议保持有意的小规模：
 
 ## 高级 API
 
-绝大多数应用只需要从包根入口使用 `mountHtmlArtifact()`。需要自定义宿主时，再使用下面两个底层入口：
+绝大多数应用只需要从包根入口使用 `mountHtmlArtifact()` 或
+`HtmlArtifactRuntime`。需要自定义宿主时，再使用下面的稳定子路径：
 
 ```ts
 // 与渲染器无关的增量协议解析器。
 import {
-  applyHtmlArtifactProtocolChunk,
-  createHtmlArtifactProtocolStreamState,
-  finalizeHtmlArtifactProtocol,
+  HtmlArtifactProtocolParser,
 } from '@velaros-ai/html-artifacts/protocol'
 
 // iframe 文档、高度适配与 URL 安全原语。
