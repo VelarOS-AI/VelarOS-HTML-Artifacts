@@ -6,6 +6,11 @@ import { fileURLToPath } from 'node:url'
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const manifest = JSON.parse(await readFile(path.join(repositoryRoot, 'package.json'), 'utf8'))
+const readme = await readFile(path.join(repositoryRoot, 'README.md'), 'utf8')
+const chineseReadme = await readFile(
+  path.join(repositoryRoot, 'README.zh-CN.md'),
+  'utf8'
+)
 const documentation = await readFile(
   path.join(repositoryRoot, 'docs/api.zh-CN.md'),
   'utf8'
@@ -29,6 +34,38 @@ for (const field of ['description', 'license', 'repository']) {
 if (!manifest.engines?.node) throw new Error(`${manifest.name} is missing a Node.js engine range`)
 if (manifest.sideEffects === undefined) throw new Error(`${manifest.name} must declare sideEffects`)
 if (!manifest.files?.includes('docs')) throw new Error(`${manifest.name} does not publish docs`)
+if (manifest.publishConfig?.access !== 'public') {
+  throw new Error(`${manifest.name} must publish with public access`)
+}
+if (manifest.publishConfig?.registry !== 'https://npm.pkg.github.com') {
+  throw new Error(`${manifest.name} must publish through GitHub Packages`)
+}
+
+const privatePackageClaims = [
+  /\bprivate\b[^\n]{0,80}@velaros-ai/iu,
+  /@velaros-ai[^\n]{0,80}\bprivate\b/iu,
+  /私有[^\n]{0,80}@velaros-ai/u,
+  /@velaros-ai[^\n]{0,80}私有/u,
+]
+for (const [fileName, contents] of [
+  ['README.md', readme],
+  ['README.zh-CN.md', chineseReadme],
+  ['docs/api.zh-CN.md', documentation],
+]) {
+  for (const pattern of privatePackageClaims) {
+    if (pattern.test(contents)) {
+      throw new Error(`${fileName} must not describe the public package or scope as private`)
+    }
+  }
+}
+if (!readme.includes('public package') || !readme.includes('read:packages')) {
+  throw new Error('README.md must document public package visibility and GitHub npm authentication')
+}
+if (!chineseReadme.includes('公开包') || !chineseReadme.includes('read:packages')) {
+  throw new Error(
+    'README.zh-CN.md must document public package visibility and GitHub npm authentication'
+  )
+}
 for (const section of requiredDocumentSections) {
   if (!documentation.includes(`## ${section}`)) {
     throw new Error(`${manifest.name} API documentation is missing "${section}"`)

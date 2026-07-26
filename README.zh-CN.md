@@ -11,7 +11,11 @@ VelarOS HTML Artifacts 是一个零运行时依赖的浏览器库。它统一负
 
 ## 安装
 
-为 GitHub Packages 的私有 `@velaros-ai` scope 配置 npm 认证后安装：
+`@velaros-ai/html-artifacts` 是托管在 GitHub Packages 上的公开包。GitHub 的 npm
+registry 当前安装公开包仍然需要认证：本地使用至少具有 `read:packages` 权限的
+personal access token（classic），GitHub Actions 使用已获仓库授权的
+`GITHUB_TOKEN`。将 `@velaros-ai` scope 映射到
+`https://npm.pkg.github.com`，提供 token 后安装：
 
 ```bash
 npm install @velaros-ai/html-artifacts
